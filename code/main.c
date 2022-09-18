@@ -9,6 +9,13 @@
 
 MetroidArea areas[NUMBER_OF_AREAS];
 
+// Rotate bits to the left
+// Adaptation of the MSVC intrinsic _rotl
+unsigned int rotl(unsigned int value, int shift)
+{
+    return (value << shift) | (value >> (64 - shift));
+}
+
 int main()
 {
     //
@@ -64,6 +71,37 @@ int main()
     areas[RIDLEY].gfxptr = RidGFX;
     areas[RIDLEY].coordptr = RidCoords;
     areas[RIDLEY].frametable = frametable4;
+
+    //
+    // Allocate memory for bit patterns
+    //
+
+    unsigned char *tile_pat_pointer = (unsigned char *)malloc(65536 * 8);
+    if (tile_pat_pointer == NULL) {
+        perror("Error allocating memory for tile patterns");
+        return 1;
+    }
+
+    // Generate all possible bit patterns
+
+    {
+        char bp1;
+        char bp2;
+        int index = 0;
+
+        for (int a = 0; a < 65536; a++) {
+            bp1 = (char)(a & 0xFF);
+            bp2 = (char)(a >> 8);
+            bp2 = rotl(bp2, 1);
+
+            for (int b = 0; b < 8; b++) {
+                bp1 = rotl(bp1, 1);
+                bp2 = rotl(bp2, 1);
+                ((char *)tile_pat_pointer)[index++] =
+                    (char)((bp1 & 1) | (bp2 & 2));
+            }
+        }
+    }
 
     //
     // Load the ROM file
@@ -135,7 +173,6 @@ int main()
     unsigned int areanum; // Area number (0..4)
     unsigned int roomnum; // Room number
     unsigned int palnum;
-    unsigned int roompos = 1; // Start at 2nd byte of room data
 
     roomnum = file_contents[0x254E + (map_y << 5) + map_x];
 
@@ -175,7 +212,7 @@ int main()
 
     // Get Room Data
 
-    unsigned char *roomdata;
+    unsigned char *room_data;
     {
         unsigned int roomptrofs;
         void *p;
@@ -185,8 +222,8 @@ int main()
 
         p = &file_contents[roomptrofs + (roomnum << 1)];
 
-        roomdata = *(unsigned short *)p - 0x08000 + areas[areanum].ROMofs +
-                   file_contents;
+        room_data = *(unsigned short *)p - 0x08000 + areas[areanum].ROMofs +
+                    file_contents;
     }
 
     // Set Nametable Entries to Blank Tiles
@@ -195,15 +232,149 @@ int main()
 
     memset(name_table, 0xFF, 32 * 30);
 
-    // Set attribute table entries to default palette selector
+    // Set Attribute Table Entries to Default Palette Selector
 
-    unsigned char defpalnum = roomdata[0];
+    unsigned char defpalnum = room_data[0];
 
     unsigned char attrib_data = file_contents[0x1F028 + defpalnum];
 
     unsigned char attrib_table[8 * 8];
 
     memset(attrib_table, attrib_data, 8 * 8);
+
+    // Draw room objects on name table
+
+    unsigned int room_pos = 1; // Start at 2nd byte of room data
+
+    while ((room_data[room_pos] != 0xFD) &&
+           (room_data[room_pos] != 0xFF)) // Start object loop
+    {
+        // Draw Struct
+        {
+            unsigned char *objptr = &room_data[room_pos];
+
+            {
+                unsigned int posx;
+                unsigned int posy;
+                unsigned char *structdata;
+                unsigned int structpos = 0;
+                unsigned int xlength;
+                unsigned char *macroptr;
+                unsigned int macroofs;
+                unsigned int macronum;
+                unsigned char palnum;
+                unsigned char palselect;
+                unsigned char andval;
+                unsigned char attribdata;
+
+                posy = (objptr[0] & 0xF0) >> 3;
+
+                // Get Struct Pointer
+                unsigned int structnum = objptr[1];
+                {
+                    unsigned int structptrofs;
+                    void *p;
+
+                    structptrofs = areas[areanum].structptrofs - 0x08000 +
+                                   areas[areanum].ROMofs;
+
+                    p = &file_contents[structptrofs + (structnum << 1)];
+
+                    structdata = *(unsigned short *)p - 0x08000 +
+                                 areas[areanum].ROMofs + file_contents;
+                }
+
+                palnum = objptr[2];
+
+                while (structdata[structpos] != 0xFF) // Start drawing macros
+                {
+                    posx = (objptr[0] & 0x0F) << 1; // Reset nametable x pos
+                    posx += (structdata[structpos] & 0xF0) >> 3;
+                    xlength = structdata[structpos++] &
+                              0x0F; // Number of macros to draw horizontally
+                    for (unsigned int i = 0; i < xlength; i++) // Do'em all
+                    {
+                        // Draw one macro
+
+                        macronum = structdata[structpos++];
+                        if ((posy < 30) && (posx < 32))
+                        { // Draw only if inside nametable
+                            macroofs = areas[areanum].macroofs - 0x08000 +
+                                       areas[areanum].ROMofs;
+                            macroptr =
+                                &file_contents
+                                    [macroofs +
+                                     (macronum
+                                      << 2)]; // Set up pointer to macro data
+
+                            // Update nametable
+
+                            name_table[(posy << 5) + posx] = macroptr[0];
+                            name_table[(posy << 5) + posx + 1] = macroptr[1];
+                            name_table[((posy + 1) << 5) + posx] = macroptr[2];
+                            name_table[((posy + 1) << 5) + posx + 1] =
+                                macroptr[3];
+
+                            // Update attribute table (if necessary)
+
+                            if (palnum != defpalnum) {
+                                attribdata = attrib_table[((posy & 0xFC) << 1) +
+                                                          (posx >> 2)];
+                                palselect = (unsigned char)((posy & 2) +
+                                                            ((posx & 2) >> 1));
+                                andval = file_contents[0x1F004 + palselect];
+                                attribdata &= andval;
+                                attribdata |=
+                                    (unsigned char)(palnum << (palselect << 1));
+                                attrib_table[((posy & 0xFC) << 1) +
+                                             (posx >> 2)] = attribdata;
+                            }
+                        }
+                        posx += 2;
+                    }
+                    posy += 2;
+                }
+            }
+
+            room_pos += 3; // Advance to next object
+        }
+    }
+
+    // Render Name Table
+    {
+        unsigned int bmpos = 0;
+        unsigned int bmpostemp;
+        unsigned char *TilePtr;
+        unsigned char tilenum;
+        unsigned int TileOfs;
+        unsigned int TileAdd;
+        unsigned int BitIndex;
+
+        for (int y = 0; y < 30; y++) {
+            /* for (int x = 0; x < 32; x++) { */
+            /*     attrib_data = attrib_table[((y & 0xFC) << 1) + (x >> 2)]; */
+            /*     palnum = (attrib_data >> (((y & 2) << 1) + (x & 2))) & 3; */
+            /*     tilenum = name_table[(y << 5) + x]; */
+            /*     TileOfs = areas[areanum].gfxptr[tilenum]; */
+            /*     TilePtr = &file_contents[TileOfs]; */
+            /*     TileAdd = (palnum << 2) + ((palnum << 2) << 8) + */
+            /*               ((palnum << 2) << 16) + ((palnum << 2) << 24); */
+            /*     bmpostemp = bmpos; */
+            /*     for (int a = 0; a < 8; a++) // Do eight lines */
+            /*     { */
+            /*         BitIndex = TilePtr[a] + (TilePtr[a + 8] << 8); */
+            /*         ((int *)MetroidImage.bmptr)[bmpostemp] = */
+            /*             ((int *)tile_pat_pointer)[BitIndex << 1] | TileAdd; */
+            /*         ((int *)MetroidImage.bmptr)[bmpostemp + 1] = */
+            /*             ((int *)tile_pat_pointer)[(BitIndex << 1) + 1] | */
+            /*             TileAdd; */
+            /*         bmpostemp += 256 / 4; */
+            /*     } */
+            /*     bmpos += 2; */
+            /* } */
+            /* bmpos += 512 - 64; */
+        } // End Y loop
+    }
 
     return 0;
 }
