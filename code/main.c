@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
 #include "met.h"
 
 MetroidArea areas[NUMBER_OF_AREAS];
@@ -110,8 +113,8 @@ int main()
         return 1;
     }
 
-    unsigned char map_pos_x = file_contents[0x055E7];
-    unsigned char map_pos_y = file_contents[0x055E8];
+    unsigned char map_x = file_contents[0x055E7];
+    unsigned char map_y = file_contents[0x055E8];
 
     for (int a = 0; a < NUMBER_OF_AREAS; a++) {
         unsigned short *p = (unsigned short *)(areas[a].ROMofs - 0x08000 +
@@ -124,6 +127,53 @@ int main()
         areas[a].sprpos2ptrofs = p[6];
         areas[a].anim2ofs = p[7];
     }
+
+    //
+    // Draw Room to Bitmap
+    //
+
+    unsigned int areanum; // Area number (0..4)
+    unsigned int roomnum; // Room number
+    unsigned int palnum;
+    unsigned char *roomdata; // Pointer to the room data
+    unsigned char attribdata;
+    unsigned int roompos = 1; // Start at 2nd byte of room data
+
+    roomnum = file_contents[0x254E + (map_y << 5) + map_x];
+
+    areanum = MapIndex[(map_y << 5) + map_x];
+
+    // Set Area
+
+    unsigned char palette[32 * 4];
+    {
+        // NES Palette to RGB
+
+        unsigned int palofs =
+            areas[areanum].palofs - 0x08000 + areas[areanum].ROMofs;
+
+        const unsigned char *p = &file_contents[palofs];
+
+        int color;
+        unsigned char data;
+
+        printf("%s palette offset: %x", AreaStrings[areanum], palofs);
+
+        for (int i = 0; i < 32; i++) {
+            color = p[i];
+            data = NESPalette[(color << 2) + 0];
+            palette[(i << 2) + 2] = data;
+            data = NESPalette[(color << 2) + 1];
+            palette[(i << 2) + 1] = data;
+            data = NESPalette[(color << 2) + 2];
+            palette[(i << 2) + 0] = data;
+            palette[(i << 2) + 3] = 0xff;
+        }
+    }
+
+    int image_write_result = stbi_write_png("test.png", 32, 1, 4, palette, 32);
+
+    assert(image_write_result != 0);
 
     return 0;
 }
