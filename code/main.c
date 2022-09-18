@@ -135,20 +135,16 @@ int main()
     unsigned int areanum; // Area number (0..4)
     unsigned int roomnum; // Room number
     unsigned int palnum;
-    unsigned char *roomdata; // Pointer to the room data
-    unsigned char attribdata;
     unsigned int roompos = 1; // Start at 2nd byte of room data
 
     roomnum = file_contents[0x254E + (map_y << 5) + map_x];
 
     areanum = MapIndex[(map_y << 5) + map_x];
 
-    // Set Area
+    // Convert Area NES Palette to RGB
 
-    unsigned char palette[32 * 4];
+    unsigned char rgb_palette[32 * 4];
     {
-        // NES Palette to RGB
-
         unsigned int palofs =
             areas[areanum].palofs - 0x08000 + areas[areanum].ROMofs;
 
@@ -157,23 +153,57 @@ int main()
         int color;
         unsigned char data;
 
-        printf("%s palette offset: %x", AreaStrings[areanum], palofs);
-
         for (int i = 0; i < 32; i++) {
             color = p[i];
             data = NESPalette[(color << 2) + 0];
-            palette[(i << 2) + 2] = data;
+            rgb_palette[(i << 2) + 2] = data;
             data = NESPalette[(color << 2) + 1];
-            palette[(i << 2) + 1] = data;
+            rgb_palette[(i << 2) + 1] = data;
             data = NESPalette[(color << 2) + 2];
-            palette[(i << 2) + 0] = data;
-            palette[(i << 2) + 3] = 0xff;
+            rgb_palette[(i << 2) + 0] = data;
+            rgb_palette[(i << 2) + 3] = 0xff;
         }
     }
 
-    int image_write_result = stbi_write_png("test.png", 32, 1, 4, palette, 32);
+    // Write Test Palette Image
+    {
+        int image_write_result =
+            stbi_write_png("palette.png", 32, 1, 4, rgb_palette, 32);
 
-    assert(image_write_result != 0);
+        assert(image_write_result != 0);
+    }
+
+    // Get Room Data
+
+    unsigned char *roomdata;
+    {
+        unsigned int roomptrofs;
+        void *p;
+
+        roomptrofs =
+            areas[areanum].roomptrofs - 0x08000 + areas[areanum].ROMofs;
+
+        p = &file_contents[roomptrofs + (roomnum << 1)];
+
+        roomdata = *(unsigned short *)p - 0x08000 + areas[areanum].ROMofs +
+                   file_contents;
+    }
+
+    // Set Nametable Entries to Blank Tiles
+
+    unsigned char name_table[32 * 30];
+
+    memset(name_table, 0xFF, 32 * 30);
+
+    // Set attribute table entries to default palette selector
+
+    unsigned char defpalnum = roomdata[0];
+
+    unsigned char attrib_data = file_contents[0x1F028 + defpalnum];
+
+    unsigned char attrib_table[8 * 8];
+
+    memset(attrib_table, attrib_data, 8 * 8);
 
     return 0;
 }
