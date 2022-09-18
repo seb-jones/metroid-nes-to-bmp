@@ -1,5 +1,4 @@
 a.out
 tags
-Metroid.nes
-code/stb_image.h
-test.png
+*.nes
+*.png
