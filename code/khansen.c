@@ -1,3 +1,6 @@
+#define SCREEN_WIDTH 256
+#define SCREEN_HEIGHT 240
+
 typedef struct
 {
     unsigned char mapposx;
@@ -513,6 +516,7 @@ unsigned char *pixels = NULL;
 MetroidArea areas[NUMBER_OF_AREAS];
 unsigned char name_table[32 * 30];
 unsigned char attrib_table[8 * 8];
+unsigned char rgb_palette[32 * 4];
 unsigned int current_area = 0;
 unsigned char hardtype;
 unsigned char defpalnum;
@@ -959,6 +963,10 @@ int load_rom()
 
 int draw_room(int map_x, int map_y)
 {
+    // Clear Pixels
+
+    memset(pixels, 0x00, 256 * 240);
+
     //
     // Draw Room to Bitmap
     //
@@ -980,7 +988,6 @@ int draw_room(int map_x, int map_y)
 
     // Convert Area NES Palette to RGB
 
-    unsigned char rgb_palette[32 * 4];
     {
         unsigned int palofs =
             areas[areanum].palofs - 0x08000 + areas[areanum].ROMofs;
@@ -1053,10 +1060,6 @@ int draw_room(int map_x, int map_y)
     //
     // Render Room to Image
     //
-
-    // Allocate Memory for Pixels
-
-    memset(pixels, 0x00, 256 * 240);
 
     // Render name table
 
@@ -1132,36 +1135,6 @@ int draw_room(int map_x, int map_y)
             room_pos += 3;
             break;
         }
-    }
-
-    // Write Test Room Image
-    {
-        int screen_width = 256;
-        int screen_height = 240;
-
-        unsigned char *rgb =
-            (unsigned char *)malloc(screen_width * screen_height * 3);
-
-        memset(rgb, 0xff, screen_width * screen_height * 3);
-
-        for (int y = 0; y < screen_height; ++y) {
-            for (int x = 0; x < screen_width; ++x) {
-                unsigned char pixel = pixels[y * screen_width + x];
-
-                int rgb_index = (y * 3 * screen_width) + (x * 3);
-
-                int palette_index = pixel * 4;
-
-                rgb[rgb_index] = rgb_palette[palette_index + 2];     // R
-                rgb[rgb_index + 1] = rgb_palette[palette_index + 1]; // G
-                rgb[rgb_index + 2] = rgb_palette[palette_index];     // B
-            }
-        }
-
-        int image_write_result =
-            stbi_write_bmp("room.bmp", screen_width, screen_height, 3, rgb);
-
-        assert(image_write_result != 0);
     }
 
     return 0;
