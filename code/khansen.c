@@ -1005,17 +1005,8 @@ int draw_room(int map_x, int map_y)
             rgb_palette[(i << 2) + 1] = data;
             data = NESPalette[(color << 2) + 2];
             rgb_palette[(i << 2) + 0] = data;
-            rgb_palette[(i << 2) + 3] = 0xff;
-            /* rgb_palette[(i << 2) + 3] = 0x00; */
+            rgb_palette[(i << 2) + 3] = 0x00;
         }
-    }
-
-    // Write Test Palette Image
-    {
-        int image_write_result =
-            stbi_write_png("palette.png", 32, 1, 4, rgb_palette, 32);
-
-        assert(image_write_result != 0);
     }
 
     // Get Room Data
