@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,14 +8,280 @@
 
 #include "met.h"
 
+unsigned char *file_contents = NULL;
+unsigned char *tile_pat_pointer = NULL;
+unsigned char *pixels = NULL;
 MetroidArea areas[NUMBER_OF_AREAS];
+unsigned char name_table[32 * 30];
+unsigned char attrib_table[8 * 8];
+unsigned int current_area = 0;
+unsigned char hardtype;
+unsigned char defpalnum;
 
 // Rotate bits to the left
 // Adaptation of the MSVC intrinsic _rotl
 unsigned int rotl(unsigned int value, int shift)
 {
-    return (value << shift) | (value >> (64 - shift));
+    return (value << shift) | (value >> (32 - shift));
 }
+
+void DrawSprite(unsigned int tilenum, unsigned int tileflip,
+                unsigned int palnum, unsigned int areanum, unsigned int xpos,
+                unsigned int ypos)
+{
+    unsigned int BitMapPos;
+    unsigned char *TilePtr;
+    unsigned int TileOfs;
+    char TileData;
+    char TileAdd;
+    unsigned int BitIndex;
+
+    TileOfs = areas[areanum].gfxptr[tilenum + 256];
+    TilePtr = &file_contents[TileOfs];
+    palnum += 4;
+    TileAdd = (char)(palnum << 2);
+    BitMapPos = (ypos << 8) + xpos; // Calculate position on bitmap
+
+    switch (tileflip) {
+    case 0:                         // Normal
+        for (int a = 0; a < 8; a++) // Do eight lines
+        {
+            if (BitMapPos >= (256 * 240)) break;
+            BitIndex = TilePtr[a] + (TilePtr[a + 8] << 8);
+            for (int b = 0; b < 8; b++) {
+                TileData =
+                    ((char *)tile_pat_pointer)[(BitIndex << 3) + b] | TileAdd;
+                if (TileData & 0x03) ((char *)pixels)[BitMapPos + b] = TileData;
+            }
+            BitMapPos += 256;
+        }
+        break;
+
+    case 1:                         // Horizontal flip
+        for (int a = 0; a < 8; a++) // Do eight lines
+        {
+            if (BitMapPos >= (256 * 240)) break;
+            BitIndex = TilePtr[a] + (TilePtr[a + 8] << 8);
+            for (int b = 0; b < 8; b++) {
+                TileData =
+                    ((char *)tile_pat_pointer)[(BitIndex << 3) + (7 - b)] |
+                    TileAdd;
+                if (TileData & 0x03) ((char *)pixels)[BitMapPos + b] = TileData;
+            }
+            BitMapPos += 256;
+        }
+        break;
+
+    case 2:                          // Vertical flip
+        for (int a = 7; a >= 0; a--) // Do eight lines
+        {
+            if (BitMapPos >= (256 * 240)) break;
+            BitIndex = TilePtr[a] + (TilePtr[a + 8] << 8);
+            for (int b = 0; b < 8; b++) {
+                TileData =
+                    ((char *)tile_pat_pointer)[(BitIndex << 3) + b] | TileAdd;
+                if (TileData & 0x03) ((char *)pixels)[BitMapPos + b] = TileData;
+            }
+            BitMapPos += 256;
+        }
+        break;
+
+    case 3:                          // Both
+        for (int a = 7; a >= 0; a--) // Do eight lines
+        {
+            if (BitMapPos >= (256 * 240)) break;
+            BitIndex = TilePtr[a] + (TilePtr[a + 8] << 8);
+            for (int b = 0; b < 8; b++) {
+                TileData =
+                    ((char *)tile_pat_pointer)[(BitIndex << 3) + (7 - b)] |
+                    TileAdd;
+                if (TileData & 0x03) ((char *)pixels)[BitMapPos + b] = TileData;
+            }
+            BitMapPos += 256;
+        }
+        break;
+    }
+};
+
+unsigned char *GetFramePointer(unsigned int framenum, unsigned int areanum)
+{
+    unsigned int frame2ptrofs;
+    void *p;
+    unsigned char *frame2data;
+
+    frame2ptrofs =
+        areas[areanum].frame2ptrofs - 0x08000 + areas[areanum].ROMofs;
+
+    p = &file_contents[frame2ptrofs + (framenum << 1)];
+
+    frame2data =
+        *(unsigned short *)p - 0x08000 + areas[areanum].ROMofs + file_contents;
+
+    return frame2data;
+};
+
+unsigned char *GetSpritePosPointer(unsigned int posnum, unsigned int areanum)
+{
+    unsigned int sprpos2ptrofs;
+    void *p;
+    unsigned char *sprpos2data;
+
+    sprpos2ptrofs =
+        areas[areanum].sprpos2ptrofs - 0x08000 + areas[areanum].ROMofs;
+
+    p = &file_contents[sprpos2ptrofs + (posnum << 1)];
+
+    sprpos2data =
+        *(unsigned short *)p - 0x08000 + areas[areanum].ROMofs + file_contents;
+
+    return sprpos2data;
+};
+
+void DrawFrame(unsigned int framenum, unsigned int areanum, unsigned int xpos,
+               unsigned int ypos)
+{
+    unsigned char *frame2data;
+    unsigned char *sprpos2data;
+    unsigned int framepos = 0;
+    unsigned int sprpos = 0;
+    unsigned int xpostemp;
+    unsigned int ypostemp;
+    unsigned int palnum;
+    unsigned int tileflip;
+    bool done = false;
+
+    frame2data = GetFramePointer(framenum, areanum);
+    sprpos2data = GetSpritePosPointer(frame2data[0] & 0x0F, areanum);
+
+    palnum = ((frame2data[0] >> 4) | hardtype) & 0x03;
+    tileflip = frame2data[0] >> 6;
+    ypos += frame2data[1];
+    xpos += frame2data[2];
+    framepos = 3;
+
+    while (done == false) {
+        switch (frame2data[framepos]) {
+        case 0xFC:
+            ypos = (ypos + frame2data[framepos + 1]) & 0xFF;
+            xpos = (xpos + frame2data[framepos + 2]) & 0xFF;
+            framepos += 3;
+            break;
+
+        case 0xFD:
+            palnum = (frame2data[framepos + 1] | hardtype) & 0x03;
+            tileflip = frame2data[framepos + 1] >> 6;
+            framepos += 2;
+            break;
+
+        case 0xFE:
+            sprpos += 2;
+            framepos++;
+            break;
+
+        case 0xFF: done = true; break;
+
+        default:
+            ypostemp = (ypos + sprpos2data[sprpos]) & 0xFF;
+            xpostemp = (xpos + sprpos2data[sprpos + 1]) & 0xFF;
+            sprpos += 2;
+            DrawSprite(frame2data[framepos++], tileflip, palnum, current_area,
+                       xpostemp, ypostemp);
+            break;
+        }
+    }
+};
+
+unsigned char *GetStructPointer(unsigned int structnum, unsigned int areanum)
+{
+    unsigned int structptrofs;
+    void *p;
+    unsigned char *structdata;
+
+    structptrofs =
+        areas[areanum].structptrofs - 0x08000 + areas[areanum].ROMofs;
+
+    p = &file_contents[structptrofs + (structnum << 1)];
+
+    structdata =
+        *(unsigned short *)p - 0x08000 + areas[areanum].ROMofs + file_contents;
+
+    return structdata;
+};
+
+void DrawStruct(unsigned char *objptr, unsigned int areanum)
+{
+    unsigned int posx;
+    unsigned int posy;
+    unsigned char *structdata;
+    unsigned int structpos = 0;
+    unsigned int xlength;
+    unsigned char *macroptr;
+    unsigned int macroofs;
+    unsigned int macronum;
+    unsigned char palnum;
+    unsigned char palselect;
+    unsigned char andval;
+    unsigned char attribdata;
+
+    posy = (objptr[0] & 0xF0) >> 3;
+    structdata =
+        GetStructPointer(objptr[1], areanum); // Get pointer to structure data
+    palnum = objptr[2];
+
+    while (structdata[structpos] != 0xFF) // Start drawing macros
+    {
+        posx = (objptr[0] & 0x0F) << 1; // Reset nametable x pos
+        posx += (structdata[structpos] & 0xF0) >> 3;
+        xlength = structdata[structpos++] &
+                  0x0F; // Number of macros to draw horizontally
+        for (unsigned int i = 0; i < xlength; i++) // Do'em all
+        {
+            // Draw one macro
+
+            macronum = structdata[structpos++];
+            if ((posy < 30) && (posx < 32)) { // Draw only if inside nametable
+                macroofs =
+                    areas[areanum].macroofs - 0x08000 + areas[areanum].ROMofs;
+                macroptr =
+                    &file_contents[macroofs +
+                                   (macronum
+                                    << 2)]; // Set up pointer to macro data
+
+                // Update nametable
+
+                name_table[(posy << 5) + posx] = macroptr[0];
+                name_table[(posy << 5) + posx + 1] = macroptr[1];
+                name_table[((posy + 1) << 5) + posx] = macroptr[2];
+                name_table[((posy + 1) << 5) + posx + 1] = macroptr[3];
+
+                // Update attribute table (if necessary)
+
+                if (palnum != defpalnum) {
+                    attribdata =
+                        attrib_table[((posy & 0xFC) << 1) + (posx >> 2)];
+                    palselect = (unsigned char)((posy & 2) + ((posx & 2) >> 1));
+                    andval = file_contents[0x1F004 + palselect];
+                    attribdata &= andval;
+                    attribdata |= (unsigned char)(palnum << (palselect << 1));
+                    attrib_table[((posy & 0xFC) << 1) + (posx >> 2)] =
+                        attribdata;
+                }
+            }
+            posx += 2;
+        }
+        posy += 2;
+    }
+};
+
+void DrawEnemy(unsigned char *objptr)
+{
+    unsigned char enemynum;
+
+    enemynum = (unsigned char)(objptr[1] & 0x0F);
+    hardtype = (unsigned char)(objptr[1] >> 7);
+    DrawFrame(areas[current_area].frametable[enemynum], current_area,
+              (objptr[2] & 0x0F) << 4, objptr[2] & 0xF0);
+};
 
 int main()
 {
@@ -76,7 +343,7 @@ int main()
     // Allocate memory for bit patterns
     //
 
-    unsigned char *tile_pat_pointer = (unsigned char *)malloc(65536 * 8);
+    tile_pat_pointer = (unsigned char *)malloc(65536 * 8);
     if (tile_pat_pointer == NULL) {
         perror("Error allocating memory for tile patterns");
         return 1;
@@ -126,7 +393,7 @@ int main()
 
     rewind(file);
 
-    unsigned char *file_contents = (unsigned char *)malloc(file_size);
+    file_contents = (unsigned char *)malloc(file_size);
 
     if (file_contents == NULL) {
         perror("Error allocating memory for ./Metroid.nes");
@@ -178,6 +445,8 @@ int main()
 
     areanum = MapIndex[(map_y << 5) + map_x];
 
+    current_area = areanum;
+
     // Convert Area NES Palette to RGB
 
     unsigned char rgb_palette[32 * 4];
@@ -198,8 +467,8 @@ int main()
             rgb_palette[(i << 2) + 1] = data;
             data = NESPalette[(color << 2) + 2];
             rgb_palette[(i << 2) + 0] = data;
-            /* rgb_palette[(i << 2) + 3] = 0xff; */
-            rgb_palette[(i << 2) + 3] = 0x00;
+            rgb_palette[(i << 2) + 3] = 0xff;
+            /* rgb_palette[(i << 2) + 3] = 0x00; */
         }
     }
 
@@ -229,17 +498,13 @@ int main()
 
     // Set Nametable Entries to Blank Tiles
 
-    unsigned char name_table[32 * 30];
-
-    memset(name_table, 0xFF, 32 * 30);
+    memset(name_table, 0x00, 32 * 30);
 
     // Set Attribute Table Entries to Default Palette Selector
 
-    unsigned char defpalnum = room_data[0];
+    defpalnum = room_data[0];
 
     unsigned char attrib_data = file_contents[0x1F028 + defpalnum];
-
-    unsigned char attrib_table[8 * 8];
 
     memset(attrib_table, attrib_data, 8 * 8);
 
@@ -250,153 +515,105 @@ int main()
     while ((room_data[room_pos] != 0xFD) &&
            (room_data[room_pos] != 0xFF)) // Start object loop
     {
-        // Draw Struct
-        {
-            unsigned char *objptr = &room_data[room_pos];
-
-            {
-                unsigned int posx;
-                unsigned int posy;
-                unsigned char *structdata;
-                unsigned int structpos = 0;
-                unsigned int xlength;
-                unsigned char *macroptr;
-                unsigned int macroofs;
-                unsigned int macronum;
-                unsigned char palnum;
-                unsigned char palselect;
-                unsigned char andval;
-                unsigned char attribdata;
-
-                posy = (objptr[0] & 0xF0) >> 3;
-
-                // Get Struct Pointer
-                unsigned int structnum = objptr[1];
-                {
-                    unsigned int structptrofs;
-                    void *p;
-
-                    structptrofs = areas[areanum].structptrofs - 0x08000 +
-                                   areas[areanum].ROMofs;
-
-                    p = &file_contents[structptrofs + (structnum << 1)];
-
-                    structdata = *(unsigned short *)p - 0x08000 +
-                                 areas[areanum].ROMofs + file_contents;
-                }
-
-                palnum = objptr[2];
-
-                while (structdata[structpos] != 0xFF) // Start drawing macros
-                {
-                    posx = (objptr[0] & 0x0F) << 1; // Reset nametable x pos
-                    posx += (structdata[structpos] & 0xF0) >> 3;
-                    xlength = structdata[structpos++] &
-                              0x0F; // Number of macros to draw horizontally
-                    for (unsigned int i = 0; i < xlength; i++) // Do'em all
-                    {
-                        // Draw one macro
-
-                        macronum = structdata[structpos++];
-                        if ((posy < 30) && (posx < 32))
-                        { // Draw only if inside nametable
-                            macroofs = areas[areanum].macroofs - 0x08000 +
-                                       areas[areanum].ROMofs;
-                            macroptr =
-                                &file_contents
-                                    [macroofs +
-                                     (macronum
-                                      << 2)]; // Set up pointer to macro data
-
-                            // Update nametable
-
-                            name_table[(posy << 5) + posx] = macroptr[0];
-                            name_table[(posy << 5) + posx + 1] = macroptr[1];
-                            name_table[((posy + 1) << 5) + posx] = macroptr[2];
-                            name_table[((posy + 1) << 5) + posx + 1] =
-                                macroptr[3];
-
-                            // Update attribute table (if necessary)
-
-                            if (palnum != defpalnum) {
-                                attribdata = attrib_table[((posy & 0xFC) << 1) +
-                                                          (posx >> 2)];
-                                palselect = (unsigned char)((posy & 2) +
-                                                            ((posx & 2) >> 1));
-                                andval = file_contents[0x1F004 + palselect];
-                                attribdata &= andval;
-                                attribdata |=
-                                    (unsigned char)(palnum << (palselect << 1));
-                                attrib_table[((posy & 0xFC) << 1) +
-                                             (posx >> 2)] = attribdata;
-                            }
-                        }
-                        posx += 2;
-                    }
-                    posy += 2;
-                }
-            }
-
-            room_pos += 3; // Advance to next object
-        }
+        DrawStruct(&room_data[room_pos], areanum);
+        room_pos += 3; // Advance to next object
     }
 
-    // Render Name Table
+    //
+    // Render Room to Image
+    //
 
-    unsigned char *pixels = (unsigned char *)malloc(256 * 240 * 4);
+    // Allocate Memory for Pixels
 
-    memset(pixels, 0xff, 256 * 240 * 4);
+    pixels = (unsigned char *)malloc(256 * 240);
+
+    memset(pixels, 0xff, 256 * 240);
 
     if (pixels == NULL) {
         perror("Error allocating memory for pixels");
         return 1;
     }
 
-    {
-        unsigned int bmpos = 0;
-        unsigned int bmpostemp;
-        unsigned char *TilePtr;
-        unsigned char tilenum;
-        unsigned int TileOfs;
-        unsigned int TileAdd;
-        unsigned int BitIndex;
+    // Render name table
 
-        for (int y = 0; y < 30; y++) {
-            for (int x = 0; x < 32; x++) {
-                attrib_data = attrib_table[((y & 0xFC) << 1) + (x >> 2)];
-                palnum = (attrib_data >> (((y & 2) << 1) + (x & 2))) & 3;
-                tilenum = name_table[(y << 5) + x];
-                TileOfs = areas[areanum].gfxptr[tilenum];
-                TilePtr = &file_contents[TileOfs];
-                TileAdd = (palnum << 2) + ((palnum << 2) << 8) +
-                          ((palnum << 2) << 16) + ((palnum << 2) << 24);
-                bmpostemp = bmpos;
+    unsigned int bmpos = 0;
+    unsigned int bmpostemp;
+    unsigned char *TilePtr;
+    unsigned char tilenum;
+    unsigned int TileOfs;
+    unsigned int TileAdd;
+    unsigned int BitIndex;
 
-                for (int a = 0; a < 8; a++) // Do eight lines
-                {
-                    BitIndex = TilePtr[a] + (TilePtr[a + 8] << 8);
-
-                    ((int *)pixels)[bmpostemp] =
-                        ((int *)tile_pat_pointer)[BitIndex << 1] | TileAdd;
-
-                    ((int *)pixels)[bmpostemp + 1] =
-                        ((int *)tile_pat_pointer)[(BitIndex << 1) + 1] |
-                        TileAdd;
-
-                    bmpostemp += 256 / 4;
-                }
-
-                bmpos += 2;
+    for (int y = 0; y < 30; y++) {
+        for (int x = 0; x < 32; x++) {
+            attrib_data = attrib_table[((y & 0xFC) << 1) + (x >> 2)];
+            palnum = (attrib_data >> (((y & 2) << 1) + (x & 2))) & 3;
+            tilenum = name_table[(y << 5) + x];
+            TileOfs = areas[areanum].gfxptr[tilenum];
+            TilePtr = &file_contents[TileOfs];
+            TileAdd = (palnum << 2) + ((palnum << 2) << 8) +
+                      ((palnum << 2) << 16) + ((palnum << 2) << 24);
+            bmpostemp = bmpos;
+            for (int a = 0; a < 8; a++) // Do eight lines
+            {
+                BitIndex = TilePtr[a] + (TilePtr[a + 8] << 8);
+                ((int *)pixels)[bmpostemp] =
+                    ((int *)tile_pat_pointer)[BitIndex << 1] | TileAdd;
+                ((int *)pixels)[bmpostemp + 1] =
+                    ((int *)tile_pat_pointer)[(BitIndex << 1) + 1] | TileAdd;
+                bmpostemp += 256 / 4;
             }
+            bmpos += 2;
+        }
+        bmpos += 512 - 64;
+    } // End Y loop
 
-            bmpos += 512 - 64;
+    if (room_data[room_pos++] != 0xFD) {
+        return 0;                     // FF reached, nothing to draw
+    }
+
+    // Render room sprites
+    while (room_data[room_pos] != 0xFF) {
+        switch (room_data[room_pos]) {
+        case 0x02: // Door
+            palnum = room_data[room_pos + 1] & 3;
+            switch (room_data[room_pos + 1] & 0xF0) {
+            case 0x0A0: // Right door
+                DrawSprite(0x0F, 1, palnum, 0, 232, 80);
+                DrawSprite(0x1F, 1, palnum, 0, 232, 88);
+                DrawSprite(0x2F, 1, palnum, 0, 232, 96);
+                DrawSprite(0x2F, 3, palnum, 0, 232, 104);
+                DrawSprite(0x1F, 3, palnum, 0, 232, 112);
+                DrawSprite(0x0F, 3, palnum, 0, 232, 120);
+                break;
+
+            case 0x0B0: // Left door
+                DrawSprite(0x0F, 0, palnum, 0, 16, 80);
+                DrawSprite(0x1F, 0, palnum, 0, 16, 88);
+                DrawSprite(0x2F, 0, palnum, 0, 16, 96);
+                DrawSprite(0x2F, 2, palnum, 0, 16, 104);
+                DrawSprite(0x1F, 2, palnum, 0, 16, 112);
+                DrawSprite(0x0F, 2, palnum, 0, 16, 120);
+                break;
+            }
+            room_pos += 2;
+            break;
+
+        case 0x06: // Ridley & Kraid statues
+            room_pos++;
+            break;
+
+        default: // Normal enemy
+            DrawEnemy(&room_data[room_pos]);
+            room_pos += 3;
+            break;
         }
     }
 
     // Write Test Room Image
     {
         int image_write_result =
-            stbi_write_png("room.png", 256, 240, 4, pixels, 256 * 4);
+            stbi_write_bmp("room.bmp", 256, 240, 1, pixels);
 
         assert(image_write_result != 0);
     }
