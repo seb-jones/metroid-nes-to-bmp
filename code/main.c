@@ -12,6 +12,8 @@
 #define MAP_HEIGHT 32
 #define IMAGE_WIDTH (MAP_WIDTH * SCREEN_WIDTH)
 #define IMAGE_HEIGHT (MAP_HEIGHT * SCREEN_HEIGHT)
+
+// TODO render RGB pixels on the fly so we don't have to store these palettes
 #define PALETTE_BYTES (32 * 4)
 
 int write_room_pixels_to_map(unsigned char *map_pixels, int map_x, int map_y);
