@@ -243,9 +243,11 @@ void DrawStruct(unsigned char *objptr, unsigned int areanum)
             // Draw one macro
 
             macronum = structdata[structpos++];
+
             if ((posy < 30) && (posx < 32)) { // Draw only if inside nametable
                 macroofs =
                     areas[areanum].macroofs - 0x08000 + areas[areanum].ROMofs;
+
                 macroptr =
                     &file_contents[macroofs +
                                    (macronum
@@ -276,8 +278,10 @@ void DrawStruct(unsigned char *objptr, unsigned int areanum)
                         attribdata;
                 }
             }
+
             posx += 2;
         }
+
         posy += 2;
     }
 };
@@ -359,6 +363,8 @@ int main()
         perror("Error allocating memory for tile patterns");
         return 1;
     }
+
+    memset(tile_pat_pointer, 0, 65536 * 8);
 
     // Generate all possible bit patterns
 
@@ -509,7 +515,7 @@ int main()
 
     // Set Nametable Entries to Blank Tiles
 
-    memset(name_table, 0x00, 32 * 30);
+    memset(name_table, 0xFF, 32 * 30);
 
     // Set Attribute Table Entries to Default Palette Selector
 
@@ -538,7 +544,7 @@ int main()
 
     pixels = (unsigned char *)malloc(256 * 240);
 
-    memset(pixels, 0xff, 256 * 240);
+    memset(pixels, 0x00, 256 * 240);
 
     if (pixels == NULL) {
         perror("Error allocating memory for pixels");
