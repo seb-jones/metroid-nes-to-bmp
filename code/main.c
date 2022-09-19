@@ -224,14 +224,18 @@ void DrawStruct(unsigned char *objptr, unsigned int areanum)
     unsigned char attribdata;
 
     posy = (objptr[0] & 0xF0) >> 3;
+
     structdata =
         GetStructPointer(objptr[1], areanum); // Get pointer to structure data
+
     palnum = objptr[2];
 
     while (structdata[structpos] != 0xFF) // Start drawing macros
     {
         posx = (objptr[0] & 0x0F) << 1; // Reset nametable x pos
+
         posx += (structdata[structpos] & 0xF0) >> 3;
+
         xlength = structdata[structpos++] &
                   0x0F; // Number of macros to draw horizontally
         for (unsigned int i = 0; i < xlength; i++) // Do'em all
@@ -259,10 +263,15 @@ void DrawStruct(unsigned char *objptr, unsigned int areanum)
                 if (palnum != defpalnum) {
                     attribdata =
                         attrib_table[((posy & 0xFC) << 1) + (posx >> 2)];
+
                     palselect = (unsigned char)((posy & 2) + ((posx & 2) >> 1));
+
                     andval = file_contents[0x1F004 + palselect];
+
                     attribdata &= andval;
+
                     attribdata |= (unsigned char)(palnum << (palselect << 1));
+
                     attrib_table[((posy & 0xFC) << 1) + (posx >> 2)] =
                         attribdata;
                 }
@@ -278,7 +287,9 @@ void DrawEnemy(unsigned char *objptr)
     unsigned char enemynum;
 
     enemynum = (unsigned char)(objptr[1] & 0x0F);
+
     hardtype = (unsigned char)(objptr[1] >> 7);
+
     DrawFrame(areas[current_area].frametable[enemynum], current_area,
               (objptr[2] & 0x0F) << 4, objptr[2] & 0xF0);
 };
@@ -612,8 +623,30 @@ int main()
 
     // Write Test Room Image
     {
+        int screen_width = 256;
+        int screen_height = 240;
+
+        unsigned char *rgb =
+            (unsigned char *)malloc(screen_width * screen_height * 3);
+
+        memset(rgb, 0xff, screen_width * screen_height * 3);
+
+        for (int y = 0; y < screen_height; ++y) {
+            for (int x = 0; x < screen_width; ++x) {
+                unsigned char pixel = pixels[y * screen_width + x];
+
+                int rgb_index = (y * 3 * screen_width) + (x * 3);
+
+                int palette_index = pixel * 4;
+
+                rgb[rgb_index] = rgb_palette[palette_index + 2];     // R
+                rgb[rgb_index + 1] = rgb_palette[palette_index + 1]; // G
+                rgb[rgb_index + 2] = rgb_palette[palette_index];     // B
+            }
+        }
+
         int image_write_result =
-            stbi_write_bmp("room.bmp", 256, 240, 1, pixels);
+            stbi_write_bmp("room.bmp", screen_width, screen_height, 3, rgb);
 
         assert(image_write_result != 0);
     }
