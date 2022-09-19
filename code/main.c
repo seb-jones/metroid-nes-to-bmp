@@ -198,7 +198,8 @@ int main()
             rgb_palette[(i << 2) + 1] = data;
             data = NESPalette[(color << 2) + 2];
             rgb_palette[(i << 2) + 0] = data;
-            rgb_palette[(i << 2) + 3] = 0xff;
+            /* rgb_palette[(i << 2) + 3] = 0xff; */
+            rgb_palette[(i << 2) + 3] = 0x00;
         }
     }
 
@@ -341,6 +342,16 @@ int main()
     }
 
     // Render Name Table
+
+    unsigned char *pixels = (unsigned char *)malloc(256 * 240 * 4);
+
+    memset(pixels, 0xff, 256 * 240 * 4);
+
+    if (pixels == NULL) {
+        perror("Error allocating memory for pixels");
+        return 1;
+    }
+
     {
         unsigned int bmpos = 0;
         unsigned int bmpostemp;
@@ -351,29 +362,43 @@ int main()
         unsigned int BitIndex;
 
         for (int y = 0; y < 30; y++) {
-            /* for (int x = 0; x < 32; x++) { */
-            /*     attrib_data = attrib_table[((y & 0xFC) << 1) + (x >> 2)]; */
-            /*     palnum = (attrib_data >> (((y & 2) << 1) + (x & 2))) & 3; */
-            /*     tilenum = name_table[(y << 5) + x]; */
-            /*     TileOfs = areas[areanum].gfxptr[tilenum]; */
-            /*     TilePtr = &file_contents[TileOfs]; */
-            /*     TileAdd = (palnum << 2) + ((palnum << 2) << 8) + */
-            /*               ((palnum << 2) << 16) + ((palnum << 2) << 24); */
-            /*     bmpostemp = bmpos; */
-            /*     for (int a = 0; a < 8; a++) // Do eight lines */
-            /*     { */
-            /*         BitIndex = TilePtr[a] + (TilePtr[a + 8] << 8); */
-            /*         ((int *)MetroidImage.bmptr)[bmpostemp] = */
-            /*             ((int *)tile_pat_pointer)[BitIndex << 1] | TileAdd; */
-            /*         ((int *)MetroidImage.bmptr)[bmpostemp + 1] = */
-            /*             ((int *)tile_pat_pointer)[(BitIndex << 1) + 1] | */
-            /*             TileAdd; */
-            /*         bmpostemp += 256 / 4; */
-            /*     } */
-            /*     bmpos += 2; */
-            /* } */
-            /* bmpos += 512 - 64; */
-        } // End Y loop
+            for (int x = 0; x < 32; x++) {
+                attrib_data = attrib_table[((y & 0xFC) << 1) + (x >> 2)];
+                palnum = (attrib_data >> (((y & 2) << 1) + (x & 2))) & 3;
+                tilenum = name_table[(y << 5) + x];
+                TileOfs = areas[areanum].gfxptr[tilenum];
+                TilePtr = &file_contents[TileOfs];
+                TileAdd = (palnum << 2) + ((palnum << 2) << 8) +
+                          ((palnum << 2) << 16) + ((palnum << 2) << 24);
+                bmpostemp = bmpos;
+
+                for (int a = 0; a < 8; a++) // Do eight lines
+                {
+                    BitIndex = TilePtr[a] + (TilePtr[a + 8] << 8);
+
+                    ((int *)pixels)[bmpostemp] =
+                        ((int *)tile_pat_pointer)[BitIndex << 1] | TileAdd;
+
+                    ((int *)pixels)[bmpostemp + 1] =
+                        ((int *)tile_pat_pointer)[(BitIndex << 1) + 1] |
+                        TileAdd;
+
+                    bmpostemp += 256 / 4;
+                }
+
+                bmpos += 2;
+            }
+
+            bmpos += 512 - 64;
+        }
+    }
+
+    // Write Test Room Image
+    {
+        int image_write_result =
+            stbi_write_png("room.png", 256, 240, 4, pixels, 256 * 4);
+
+        assert(image_write_result != 0);
     }
 
     return 0;
